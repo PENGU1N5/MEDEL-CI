@@ -187,6 +187,11 @@ button.btn.danger{background:var(--red)}
     <h2>Service turnaround (sent → returned)</h2>
     <div class="scroll"><table id="tblTurnaround"></table></div>
   </div>
+  <div class="card">
+    <h2>Recent movements</h2>
+    <div id="mvListMsg"></div>
+    <div class="scroll"><table id="tblMovements"></table></div>
+  </div>
 </section>
 
 <!-- SHORTAGES -->
@@ -291,7 +296,7 @@ document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
 
 // ---------- data refresh ----------
 async function refreshAll(){
-  await Promise.all([loadDevices(), loadMatrix(), loadShortages(), loadTurnaround()]);
+  await Promise.all([loadDevices(), loadMatrix(), loadShortages(), loadTurnaround(), loadMovements()]);
 }
 
 async function loadDevices(){
@@ -326,11 +331,15 @@ function zeroLines(){
 function renderDevices(){
   const fc=$("f_country").value, fs=$("f_status").value, fq=$("f_serial").value.toLowerCase();
   const rows = devices.filter(d=>(!fc||d.country_code===fc)&&(!fs||d.status===fs)&&(!fq||d.serial_number.toLowerCase().includes(fq)));
-  $("tblDevices").innerHTML = `<thead><tr><th>Serial</th><th>Model</th><th>Country</th><th>Status</th><th>Added</th><th>Notes</th></tr></thead><tbody>`+
-    (rows.length?rows.map(d=>`<tr><td><b>${esc(d.serial_number)}</b></td><td>${esc(modelName(d.model_code))}</td>
+  $("tblDevices").innerHTML = `<thead><tr><th>Serial</th><th>Model</th><th>Country</th><th>Status</th><th>Added</th><th>Notes</th><th>Actions</th></tr></thead><tbody>`+
+    (rows.length?rows.map(d=>`<tr id="dev-${d.id}"><td><b>${esc(d.serial_number)}</b></td><td>${esc(modelName(d.model_code))}</td>
       <td>${d.country_code}</td><td><span class="pill p-${d.status}">${d.status.replace(/_/g," ")}</span></td>
-      <td>${d.added_on||""}</td><td>${esc(d.notes)}</td></tr>`).join("")
-      :`<tr><td colspan="6" style="color:var(--graphite-soft)">No devices yet.</td></tr>`)+`</tbody>`;
+      <td>${d.added_on||""}</td><td id="dev-note-${d.id}">${esc(d.notes)}</td>
+      <td class="row-actions">
+        <button onclick="editDevice('${d.id}')">Edit</button>
+        <button onclick="deleteDevice('${d.id}')" style="color:var(--red);border-color:var(--red)">Delete</button>
+      </td></tr>`).join("")
+      :`<tr><td colspan="7" style="color:var(--graphite-soft)">No devices yet.</td></tr>`)+`</tbody>`;
 }
 ["f_country","f_status","f_serial"].forEach(id=>$(id).addEventListener("input",renderDevices));
 
@@ -440,6 +449,85 @@ async function addMovement(){
   ["m_patient","m_rma","m_note"].forEach(x=>$(x).value=""); $("m_dest").value="";
   flash("mvMsg","Movement recorded.",true);
   await refreshAll();
+}
+
+async function loadMovements(){
+  const {data} = await sb.from("movements").select("*").order("event_date",{ascending:false}).limit(50);
+  const rows = data||[];
+  $("tblMovements").innerHTML = `<thead><tr><th>Date</th><th>Device</th><th>Event</th><th>Patient</th><th>RMA</th><th>Note</th><th>Actions</th></tr></thead><tbody>`+
+    (rows.length?rows.map(r=>{
+      const dev = devices.find(d=>d.id===r.device_id);
+      return `<tr id="mv-${r.id}"><td>${r.event_date}</td>
+        <td>${dev ? esc(dev.serial_number) : '—'}</td>
+        <td><span class="pill ${r.event_type==='sent_to_austria'||r.event_type==='returned_from_austria'?'p-at_service':r.event_type==='issued_to_patient'?'p-issued':'p-available'}">${r.event_type.replace(/_/g," ")}</span></td>
+        <td>${esc(r.patient_ref||"")}</td><td>${esc(r.rma_number||"")}</td>
+        <td>${esc(r.note||"")}</td>
+        <td class="row-actions">
+          <button onclick="editMovement('${r.id}')">Edit</button>
+          <button onclick="deleteMovement('${r.id}')" style="color:var(--red);border-color:var(--red)">Delete</button>
+        </td></tr>`;
+    }).join("")
+    :`<tr><td colspan="7" style="color:var(--graphite-soft)">No movements yet.</td></tr>`)+`</tbody>`;
+}
+
+function editMovement(id){
+  const row = $(`mv-${id}`);
+  if(!row) return;
+  const cells = row.querySelectorAll("td");
+  const oldNote = cells[5]?.textContent?.trim() || "";
+  row.innerHTML = `<td colspan="7">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 0">
+      <label style="white-space:nowrap;margin:0">Note
+        <input id="em_${id}_note" value="${esc(oldNote)}" style="width:260px;margin-left:6px">
+      </label>
+      <button class="btn" style="padding:6px 14px;font-size:12px" onclick="saveMovement('${id}')">Save</button>
+      <button class="btn ghost" style="padding:6px 14px;font-size:12px" onclick="loadMovements()">Cancel</button>
+    </div>
+  </td>`;
+}
+
+async function saveMovement(id){
+  const note = $(`em_${id}_note`).value.trim();
+  const {error} = await sb.from("movements").update({ note: note||null }).eq("id", id);
+  if(error) return flash("mvListMsg",error.message,false);
+  flash("mvListMsg","Movement updated.",true);
+  await loadMovements();
+}
+
+async function deleteMovement(id){
+  if(!confirm("Delete this movement permanently?")) return;
+  const {error} = await sb.from("movements").delete().eq("id", id);
+  if(error) return flash("mvListMsg",error.message,false);
+  flash("mvListMsg","Movement deleted.",true);
+  await refreshAll();
+}
+
+function editDevice(id){
+  const row = $(`dev-${id}`);
+  if(!row) return;
+  const noteCell = $(`dev-note-${id}`);
+  const oldNote = noteCell?.textContent?.trim() || "";
+  noteCell.innerHTML = `<div style="display:flex;gap:6px">
+    <input id="ed_${id}_note" value="${esc(oldNote)}" style="width:200px">
+    <button class="btn" style="padding:4px 10px;font-size:11px" onclick="saveDevice('${id}')">Save</button>
+    <button class="btn ghost" style="padding:4px 10px;font-size:11px" onclick="renderDevices()">X</button>
+  </div>`;
+}
+
+async function saveDevice(id){
+  const note = $(`ed_${id}_note`).value.trim();
+  const {error} = await sb.from("pool_devices").update({ notes: note||null }).eq("id", id);
+  if(error) return flash("devMsg",error.message,false);
+  flash("devMsg","Device updated.",true);
+  await loadDevices();
+}
+
+async function deleteDevice(id){
+  if(!confirm("Delete this device permanently?")) return;
+  const {error} = await sb.from("pool_devices").delete().eq("id", id);
+  if(error) return flash("devMsg",error.message,false);
+  flash("devMsg","Device deleted.",true);
+  await loadDevices();
 }
 
 async function addShortage(){
