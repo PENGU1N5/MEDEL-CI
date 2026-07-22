@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MED-EL Service Pool — Middle East</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+:root{
+  --medel-green:#00A94F;
+  --medel-green-dark:#00803C;
+  --medel-green-light:#E6F6ED;
+  --graphite:#3C3C3B;
+  --graphite-soft:#6E6E6D;
+  --line:#E2E5E3;
+  --bg:#F6F8F7;
+  --white:#fff;
+  --amber:#E8A33D;
+  --red:#D64545;
+  --radius:10px;
+  --shadow:0 1px 3px rgba(0,0,0,.07),0 6px 18px rgba(0,0,0,.05);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI",Helvetica,Arial,sans-serif;background:var(--bg);color:var(--graphite);font-size:14px}
+a{color:var(--medel-green-dark)}
+header{background:var(--white);border-bottom:3px solid var(--medel-green);padding:12px 22px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:20;box-shadow:var(--shadow)}
+.logo{display:flex;align-items:baseline;gap:8px;font-weight:700;font-size:19px;letter-spacing:-.4px}
+.logo .dash{color:var(--medel-green)}
+.logo small{font-weight:400;font-size:12px;color:var(--graphite-soft);letter-spacing:0}
+header .spacer{flex:1}
+.badge{background:var(--medel-green-light);color:var(--medel-green-dark);padding:4px 11px;border-radius:99px;font-size:12px;font-weight:600}
+nav{display:flex;gap:2px;padding:0 22px;background:var(--white);border-bottom:1px solid var(--line);overflow-x:auto}
+nav button{background:none;border:none;border-bottom:3px solid transparent;padding:11px 14px;font-size:13.5px;color:var(--graphite-soft);cursor:pointer;white-space:nowrap;font-weight:500}
+nav button.active{color:var(--medel-green-dark);border-bottom-color:var(--medel-green);font-weight:600}
+main{padding:22px;max-width:1300px;margin:0 auto}
+.card{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:18px;box-shadow:var(--shadow)}
+.card h2{margin:0 0 14px;font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+.card h2::before{content:"";width:4px;height:15px;background:var(--medel-green);border-radius:2px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:18px}
+.kpi{background:var(--white);border:1px solid var(--line);border-left:4px solid var(--medel-green);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow)}
+.kpi .n{font-size:27px;font-weight:700;line-height:1.1}
+.kpi .l{font-size:11.5px;color:var(--graphite-soft);text-transform:uppercase;letter-spacing:.5px;margin-top:3px}
+.kpi.warn{border-left-color:var(--amber)} .kpi.warn .n{color:var(--amber)}
+.kpi.bad{border-left-color:var(--red)} .kpi.bad .n{color:var(--red)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:9px 10px;background:var(--medel-green-light);color:var(--medel-green-dark);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0}
+td{padding:9px 10px;border-bottom:1px solid var(--line)}
+tr:hover td{background:#FAFBFA}
+.num{text-align:center;font-variant-numeric:tabular-nums}
+.zero{color:#C9CCCA}
+.hot{background:#FDECEC!important;color:var(--red);font-weight:700;border-radius:4px}
+.warm{background:#FDF4E5!important;color:var(--amber);font-weight:600;border-radius:4px}
+.pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:600}
+.p-available{background:var(--medel-green-light);color:var(--medel-green-dark)}
+.p-issued{background:#E8EEF6;color:#3A5F91}
+.p-at_service{background:#FDF4E5;color:#9A6A15}
+.p-in_transit{background:#F0EDF8;color:#5D4A93}
+.p-retired{background:#EFEFEF;color:#7A7A7A}
+label{display:block;font-size:12px;font-weight:600;color:var(--graphite-soft);margin-bottom:4px}
+input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13.5px;font-family:inherit;background:var(--white);color:var(--graphite)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--medel-green);box-shadow:0 0 0 3px rgba(0,169,79,.13)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:13px}
+button.btn{background:var(--medel-green);color:#fff;border:none;padding:9px 20px;border-radius:7px;font-size:13.5px;font-weight:600;cursor:pointer}
+button.btn:hover{background:var(--medel-green-dark)}
+button.btn.ghost{background:none;color:var(--medel-green-dark);border:1px solid var(--medel-green)}
+button.btn.danger{background:var(--red)}
+.row-actions button{background:none;border:1px solid var(--line);border-radius:6px;padding:3px 9px;font-size:11.5px;cursor:pointer;color:var(--graphite-soft)}
+.row-actions button:hover{border-color:var(--medel-green);color:var(--medel-green-dark)}
+.login{max-width:380px;margin:9vh auto;background:var(--white);border-radius:14px;padding:32px;box-shadow:var(--shadow);border-top:4px solid var(--medel-green)}
+.msg{padding:10px 13px;border-radius:7px;font-size:13px;margin-bottom:13px}
+.msg.err{background:#FDECEC;color:var(--red)}
+.msg.ok{background:var(--medel-green-light);color:var(--medel-green-dark)}
+.hint{font-size:12px;color:var(--graphite-soft);margin:-6px 0 12px}
+.scroll{overflow-x:auto}
+.hidden{display:none!important}
+.chartbox{height:280px}
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div id="loginView" class="login">
+  <div class="logo" style="margin-bottom:6px">MED<span class="dash">•</span>EL</div>
+  <div style="font-size:13px;color:var(--graphite-soft);margin-bottom:22px">CI Service Pool — Middle East Region</div>
+  <div id="loginMsg"></div>
+  <label>Email</label>
+  <input id="email" type="email" autocomplete="username" style="margin-bottom:12px">
+  <label>Password</label>
+  <input id="password" type="password" autocomplete="current-password" style="margin-bottom:18px">
+  <button class="btn" style="width:100%" onclick="signIn()">Sign in</button>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="appView" class="hidden">
+<header>
+  <div class="logo">MED<span class="dash">•</span>EL <small>Service Pool · Middle East</small></div>
+  <div class="spacer"></div>
+  <span class="badge" id="userBadge"></span>
+  <button class="btn ghost" onclick="signOut()">Sign out</button>
+</header>
+
+<nav>
+  <button data-tab="dash" class="active">Dashboard</button>
+  <button data-tab="stock">Stock Matrix</button>
+  <button data-tab="devices">Devices</button>
+  <button data-tab="service">Austria Service</button>
+  <button data-tab="shortage">Shortages</button>
+</nav>
+
+<main>
+
+<!-- DASHBOARD -->
+<section id="tab-dash">
+  <div class="kpis" id="kpis"></div>
+  <div class="card">
+    <h2>Shortage events by month</h2>
+    <div class="chartbox"><canvas id="chartSeason"></canvas></div>
+    <p class="hint" style="margin-top:10px">Peaks show the time of year when the pool cannot cover patient replacements.</p>
+  </div>
+  <div class="card">
+    <h2>Devices at Austria service (open)</h2>
+    <div class="scroll"><table id="tblOpenService"></table></div>
+  </div>
+</section>
+
+<!-- STOCK MATRIX -->
+<section id="tab-stock" class="hidden">
+  <div class="card">
+    <h2>Available units — country × model</h2>
+    <p class="hint">Red = zero available. Amber = one unit left.</p>
+    <div class="scroll"><table id="tblMatrix"></table></div>
+  </div>
+</section>
+
+<!-- DEVICES -->
+<section id="tab-devices" class="hidden">
+  <div class="card">
+    <h2>Add device to pool</h2>
+    <div id="devMsg"></div>
+    <div class="grid">
+      <div><label>Serial number</label><input id="d_serial"></div>
+      <div><label>Model</label><select id="d_model"></select></div>
+      <div><label>Country</label><select id="d_country"></select></div>
+      <div><label>Date added</label><input id="d_date" type="date"></div>
+    </div>
+    <div style="margin-top:13px"><label>Notes</label><input id="d_notes"></div>
+    <div style="margin-top:14px"><button class="btn" onclick="addDevice()">Add to pool</button></div>
+  </div>
+  <div class="card">
+    <h2>Pool inventory</h2>
+    <div class="grid" style="margin-bottom:13px">
+      <div><label>Filter country</label><select id="f_country"></select></div>
+      <div><label>Filter status</label><select id="f_status">
+        <option value="">All</option><option>available</option><option>issued</option>
+        <option>at_service</option><option>in_transit</option><option>retired</option></select></div>
+      <div><label>Search serial</label><input id="f_serial" placeholder="type to filter"></div>
+    </div>
+    <div class="scroll"><table id="tblDevices"></table></div>
+  </div>
+</section>
+
+<!-- SERVICE -->
+<section id="tab-service" class="hidden">
+  <div class="card">
+    <h2>Log a movement</h2>
+    <div id="mvMsg"></div>
+    <div class="grid">
+      <div><label>Device</label><select id="m_device"></select></div>
+      <div><label>Event</label><select id="m_type">
+        <option value="issued_to_patient">Issued to patient (replacement)</option>
+        <option value="returned_by_patient">Returned by patient</option>
+        <option value="sent_to_austria">Sent to Austria for service</option>
+        <option value="returned_from_austria">Returned from Austria</option>
+        <option value="transferred_out">Transferred to another country</option>
+        <option value="retired">Retired</option>
+      </select></div>
+      <div><label>Date</label><input id="m_date" type="date"></div>
+      <div><label>Patient ref (optional)</label><input id="m_patient" placeholder="MRN / internal ref"></div>
+      <div><label>RMA / service ref</label><input id="m_rma"></div>
+      <div><label>Destination country (transfers)</label><select id="m_dest"></select></div>
+    </div>
+    <div style="margin-top:13px"><label>Note</label><input id="m_note"></div>
+    <div style="margin-top:14px"><button class="btn" onclick="addMovement()">Save movement</button></div>
+  </div>
+  <div class="card">
+    <h2>Service turnaround (sent → returned)</h2>
+    <div class="scroll"><table id="tblTurnaround"></table></div>
+  </div>
+</section>
+
+<!-- SHORTAGES -->
+<section id="tab-shortage" class="hidden">
+  <div class="card" style="border-left:4px solid var(--amber)">
+    <h2>Log a shortage — patient could not be served</h2>
+    <p class="hint">Record this every time a replacement was needed and the pool could not cover it, even if it was resolved later.</p>
+    <div id="shMsg"></div>
+    <div class="grid">
+      <div><label>Country</label><select id="s_country"></select></div>
+      <div><label>Model needed</label><select id="s_model"></select></div>
+      <div><label>Date occurred</label><input id="s_date" type="date"></div>
+      <div><label>Units needed</label><input id="s_units" type="number" value="1" min="1"></div>
+      <div><label>Urgency</label><select id="s_urgency">
+        <option value="routine">Routine</option><option value="urgent">Urgent</option>
+        <option value="critical">Critical (bilateral / sole device)</option></select></div>
+      <div><label>Reason</label><select id="s_reason">
+        <option value="no_stock">No stock at all</option>
+        <option value="all_at_service">All units at Austria service</option>
+        <option value="wrong_variant">Wrong variant / incompatible</option>
+        <option value="pending_shipment">Shipment delayed</option>
+        <option value="other">Other</option></select></div>
+      <div><label>Patient ref (optional)</label><input id="s_patient"></div>
+      <div><label>Patient wait (days)</label><input id="s_wait" type="number" min="0"></div>
+      <div><label>Resolved on</label><input id="s_resolved" type="date"></div>
+    </div>
+    <div style="margin-top:13px"><label>Resolution / note</label><input id="s_note" placeholder="e.g. borrowed unit from UAE pool"></div>
+    <div style="margin-top:14px"><button class="btn" onclick="addShortage()">Log shortage</button></div>
+  </div>
+  <div class="card">
+    <h2>Shortage log</h2>
+    <div class="scroll"><table id="tblShortage"></table></div>
+  </div>
+  <div class="card">
+    <h2>Which model runs out most</h2>
+    <div class="chartbox"><canvas id="chartModel"></canvas></div>
+  </div>
+</section>
+
+</main>
+</div>
+
+<script>
+// ============ CONFIG — replace these two values ============
+const SUPABASE_URL = "https://vpahqreilrzqflpsosrd.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZwYWhxcmVpbHJ6cWZscHNvc3JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3MTk5OTAsImV4cCI6MjEwMDI5NTk5MH0.wPkig86XcmdSTuibRNmbgAUhlVz3YY5V_Ht-6t554R8";
+// ==========================================================
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+let me = null, countries = [], models = [], devices = [], charts = {};
+
+const $ = id => document.getElementById(id);
+const esc = s => (s??"").toString().replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const today = () => new Date().toISOString().slice(0,10);
+function flash(el,text,ok){ $(el).innerHTML = `<div class="msg ${ok?'ok':'err'}">${esc(text)}</div>`;
+  setTimeout(()=>{ if($(el)) $(el).innerHTML=""; }, 5000); }
+
+// ---------- auth ----------
+async function signIn(){
+  const {error} = await sb.auth.signInWithPassword({email:$("email").value.trim(), password:$("password").value});
+  if(error) return flash("loginMsg", error.message, false);
+  boot();
+}
+async function signOut(){ await sb.auth.signOut(); location.reload(); }
+
+async function boot(){
+  const {data:{session}} = await sb.auth.getSession();
+  if(!session){ $("loginView").classList.remove("hidden"); $("appView").classList.add("hidden"); return; }
+  const {data:prof} = await sb.from("profiles").select("*").eq("id", session.user.id).single();
+  me = prof || {role:"country", country_code:null, email:session.user.email};
+  $("loginView").classList.add("hidden");
+  $("appView").classList.remove("hidden");
+  $("userBadge").textContent = (me.full_name||me.email) + " · " + (me.role==="regional" ? "Regional" : (me.country_code||"—"));
+  const [{data:c},{data:m}] = await Promise.all([
+    sb.from("countries").select("*").eq("active",true).order("name"),
+    sb.from("device_models").select("*").eq("active",true).order("sort_order")
+  ]);
+  countries = c||[]; models = m||[];
+  fillSelects();
+  await refreshAll();
+}
+
+function fillSelects(){
+  const cOpts = countries.map(x=>`<option value="${x.code}">${esc(x.name)}</option>`).join("");
+  const mOpts = models.map(x=>`<option value="${x.code}">${esc(x.name)}</option>`).join("");
+  ["d_country","s_country"].forEach(id=>{ $(id).innerHTML=cOpts; if(me.country_code) $(id).value=me.country_code;
+    if(me.role!=="regional") $(id).disabled = true; });
+  $("m_dest").innerHTML = `<option value="">—</option>`+cOpts;
+  $("f_country").innerHTML = `<option value="">All countries</option>`+cOpts;
+  ["d_model","s_model"].forEach(id=>$(id).innerHTML=mOpts);
+  ["d_date","m_date","s_date"].forEach(id=>$(id).value=today());
+}
+
+// ---------- tabs ----------
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.remove("active"));
+  b.classList.add("active");
+  document.querySelectorAll("main > section").forEach(s=>s.classList.add("hidden"));
+  $("tab-"+b.dataset.tab).classList.remove("hidden");
+});
+
+// ---------- data refresh ----------
+async function refreshAll(){
+  await Promise.all([loadDevices(), loadMatrix(), loadShortages(), loadTurnaround()]);
+}
+
+async function loadDevices(){
+  let q = sb.from("pool_devices").select("*").order("country_code").order("model_code").order("serial_number");
+  const {data} = await q; devices = data||[];
+  $("m_device").innerHTML = devices.filter(d=>d.status!=="retired")
+    .map(d=>`<option value="${d.id}">${esc(d.serial_number)} · ${esc(modelName(d.model_code))} · ${d.country_code} (${d.status})</option>`).join("");
+  renderDevices();
+  // KPIs
+  const act = devices.filter(d=>d.status!=="retired");
+  const cnt = s => act.filter(d=>d.status===s).length;
+  $("kpis").innerHTML = `
+    ${kpi(act.length,"Units in pool","")}
+    ${kpi(cnt("available"),"Available now","")}
+    ${kpi(cnt("issued"),"With patients","")}
+    ${kpi(cnt("at_service"),"At Austria service","warn")}
+    ${kpi(zeroLines(),"Country×model at zero","bad")}`;
+}
+const kpi=(n,l,cls)=>`<div class="kpi ${cls}"><div class="n">${n}</div><div class="l">${l}</div></div>`;
+const modelName = c => (models.find(m=>m.code===c)||{}).name || c;
+const countryName = c => (countries.find(x=>x.code===c)||{}).name || c;
+function zeroLines(){
+  let z=0;
+  countries.forEach(c=>models.forEach(m=>{
+    const has = devices.some(d=>d.country_code===c.code&&d.model_code===m.code&&d.status==="available");
+    const owns = devices.some(d=>d.country_code===c.code&&d.model_code===m.code&&d.status!=="retired");
+    if(owns && !has) z++;
+  }));
+  return z;
+}
+
+function renderDevices(){
+  const fc=$("f_country").value, fs=$("f_status").value, fq=$("f_serial").value.toLowerCase();
+  const rows = devices.filter(d=>(!fc||d.country_code===fc)&&(!fs||d.status===fs)&&(!fq||d.serial_number.toLowerCase().includes(fq)));
+  $("tblDevices").innerHTML = `<thead><tr><th>Serial</th><th>Model</th><th>Country</th><th>Status</th><th>Added</th><th>Notes</th></tr></thead><tbody>`+
+    (rows.length?rows.map(d=>`<tr><td><b>${esc(d.serial_number)}</b></td><td>${esc(modelName(d.model_code))}</td>
+      <td>${d.country_code}</td><td><span class="pill p-${d.status}">${d.status.replace(/_/g," ")}</span></td>
+      <td>${d.added_on||""}</td><td>${esc(d.notes)}</td></tr>`).join("")
+      :`<tr><td colspan="6" style="color:var(--graphite-soft)">No devices yet.</td></tr>`)+`</tbody>`;
+}
+["f_country","f_status","f_serial"].forEach(id=>$(id).addEventListener("input",renderDevices));
+
+async function loadMatrix(){
+  const {data} = await sb.from("v_stock_matrix").select("*");
+  const rows = data||[];
+  const ms = models;
+  let h = `<thead><tr><th>Country</th>${ms.map(m=>`<th class="num">${esc(m.name)}</th>`).join("")}<th class="num">Total</th></tr></thead><tbody>`;
+  countries.forEach(c=>{
+    let tot=0;
+    const cells = ms.map(m=>{
+      const r = rows.find(x=>x.country_code===c.code && x.model_code===m.code) || {};
+      const a = r.available||0, own = r.total_active||0; tot+=a;
+      const cls = own===0 ? "zero" : a===0 ? "hot" : a===1 ? "warm" : "";
+      return `<td class="num ${cls}" title="${own} owned / ${r.at_service||0} at service">${own===0?"–":a}</td>`;
+    }).join("");
+    h += `<tr><td><b>${esc(c.name)}</b></td>${cells}<td class="num"><b>${tot}</b></td></tr>`;
+  });
+  $("tblMatrix").innerHTML = h+`</tbody>`;
+}
+
+async function loadTurnaround(){
+  const {data} = await sb.from("v_service_turnaround").select("*").order("sent_on",{ascending:false});
+  const rows = data||[];
+  const head = `<thead><tr><th>Serial</th><th>Model</th><th>Country</th><th>RMA</th><th>Sent to Austria</th><th>Returned</th><th class="num">Days</th></tr></thead><tbody>`;
+  const body = rows.length? rows.map(r=>`<tr><td><b>${esc(r.serial_number)}</b></td><td>${esc(modelName(r.model_code))}</td>
+    <td>${r.country_code}</td><td>${esc(r.rma_number)}</td><td>${r.sent_on}</td>
+    <td>${r.returned_on || '<span class="pill p-at_service">still there</span>'}</td>
+    <td class="num">${r.turnaround_days??"—"}</td></tr>`).join("")
+    : `<tr><td colspan="7" style="color:var(--graphite-soft)">Nothing sent for service yet.</td></tr>`;
+  $("tblTurnaround").innerHTML = head+body+`</tbody>`;
+  const open = rows.filter(r=>!r.returned_on);
+  $("tblOpenService").innerHTML = `<thead><tr><th>Serial</th><th>Model</th><th>Country</th><th>Sent</th><th class="num">Days out</th></tr></thead><tbody>`+
+    (open.length?open.map(r=>{
+      const days = Math.round((Date.now()-new Date(r.sent_on))/864e5);
+      return `<tr><td><b>${esc(r.serial_number)}</b></td><td>${esc(modelName(r.model_code))}</td><td>${r.country_code}</td>
+        <td>${r.sent_on}</td><td class="num ${days>60?'hot':days>30?'warm':''}">${days}</td></tr>`;}).join("")
+     :`<tr><td colspan="5" style="color:var(--graphite-soft)">Nothing currently at service.</td></tr>`)+`</tbody>`;
+}
+
+async function loadShortages(){
+  const {data} = await sb.from("shortage_events").select("*").order("occurred_on",{ascending:false});
+  const rows = data||[];
+  $("tblShortage").innerHTML = `<thead><tr><th>Date</th><th>Country</th><th>Model</th><th class="num">Units</th>
+    <th>Urgency</th><th>Reason</th><th class="num">Wait</th><th>Resolved</th><th>Note</th></tr></thead><tbody>`+
+    (rows.length?rows.map(r=>`<tr><td>${r.occurred_on}</td><td>${r.country_code}</td><td>${esc(modelName(r.model_code))}</td>
+      <td class="num">${r.units_needed}</td>
+      <td><span class="pill ${r.urgency==='critical'?'p-retired':'p-at_service'}" style="${r.urgency==='critical'?'background:#FDECEC;color:#D64545':''}">${r.urgency}</span></td>
+      <td>${r.reason.replace(/_/g," ")}</td><td class="num">${r.wait_days??"—"}</td>
+      <td>${r.resolved_on||'<span class="pill p-at_service">open</span>'}</td><td>${esc(r.note||r.resolution)}</td></tr>`).join("")
+     :`<tr><td colspan="9" style="color:var(--graphite-soft)">No shortages logged.</td></tr>`)+`</tbody>`;
+
+  // seasonality chart
+  const byMonth = Array(12).fill(0);
+  rows.forEach(r=>byMonth[new Date(r.occurred_on).getMonth()] += r.units_needed);
+  drawChart("chartSeason","bar",MONTHS,[{label:"Units short",data:byMonth,backgroundColor:"#00A94F",borderRadius:5}]);
+
+  // by model chart
+  const byModel = models.map(m=>rows.filter(r=>r.model_code===m.code).reduce((a,b)=>a+b.units_needed,0));
+  drawChart("chartModel","bar",models.map(m=>m.name),[{label:"Units short",data:byModel,backgroundColor:"#E8A33D",borderRadius:5}]);
+}
+
+function drawChart(id,type,labels,datasets){
+  if(charts[id]) charts[id].destroy();
+  charts[id] = new Chart($(id), {type, data:{labels,datasets},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{y:{beginAtZero:true,ticks:{precision:0},grid:{color:"#EEF1EF"}},x:{grid:{display:false}}}}});
+}
+
+// ---------- writes ----------
+async function addDevice(){
+  const serial = $("d_serial").value.trim();
+  if(!serial) return flash("devMsg","Serial number is required.",false);
+  const {error} = await sb.from("pool_devices").insert({
+    serial_number:serial, model_code:$("d_model").value, country_code:$("d_country").value,
+    added_on:$("d_date").value, notes:$("d_notes").value||null, status:"available"});
+  if(error) return flash("devMsg",error.message,false);
+  const {data:dev} = await sb.from("pool_devices").select("id").eq("serial_number",serial).eq("model_code",$("d_model").value).single();
+  if(dev) await sb.from("movements").insert({device_id:dev.id,country_code:$("d_country").value,
+    event_type:"added_to_pool",event_date:$("d_date").value});
+  $("d_serial").value=""; $("d_notes").value="";
+  flash("devMsg","Device added to the pool.",true);
+  await refreshAll();
+}
+
+async function addMovement(){
+  const id = $("m_device").value;
+  if(!id) return flash("mvMsg","Select a device.",false);
+  const dev = devices.find(d=>d.id===id);
+  const type = $("m_type").value;
+  if(type==="transferred_out" && !$("m_dest").value) return flash("mvMsg","Choose a destination country.",false);
+  const {error} = await sb.from("movements").insert({
+    device_id:id, country_code:dev.country_code, event_type:type, event_date:$("m_date").value,
+    patient_ref:$("m_patient").value||null, rma_number:$("m_rma").value||null,
+    counterpart_country:$("m_dest").value||null, note:$("m_note").value||null});
+  if(error) return flash("mvMsg",error.message,false);
+  ["m_patient","m_rma","m_note"].forEach(x=>$(x).value=""); $("m_dest").value="";
+  flash("mvMsg","Movement recorded.",true);
+  await refreshAll();
+}
+
+async function addShortage(){
+  const {error} = await sb.from("shortage_events").insert({
+    country_code:$("s_country").value, model_code:$("s_model").value, occurred_on:$("s_date").value,
+    units_needed:parseInt($("s_units").value)||1, urgency:$("s_urgency").value, reason:$("s_reason").value,
+    patient_ref:$("s_patient").value||null, wait_days:$("s_wait").value?parseInt($("s_wait").value):null,
+    resolved_on:$("s_resolved").value||null, note:$("s_note").value||null});
+  if(error) return flash("shMsg",error.message,false);
+  ["s_patient","s_wait","s_resolved","s_note"].forEach(x=>$(x).value="");
+  flash("shMsg","Shortage logged.",true);
+  await loadShortages();
+}
+
+$("password").addEventListener("keydown",e=>{ if(e.key==="Enter") signIn(); });
+boot();
+</script>
+</body>
+</html>
