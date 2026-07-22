@@ -163,7 +163,32 @@ button.btn.danger:hover{background:#B53A3A}
       <div><label>Date added</label><input id="d_date" type="date"></div>
     </div>
     <div style="margin-top:13px"><label>Notes</label><input id="d_notes"></div>
-    <div style="margin-top:14px"><button class="btn" onclick="addDevice()">Add to pool</button></div>
+    <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" onclick="addDevice()">Add to pool</button>
+      <button class="btn ghost" onclick="openBulkImport()">Bulk Import</button>
+    </div>
+  </div>
+  <!-- Bulk Import Modal -->
+  <div id="bulkModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)closeBulkImport()">
+    <div style="background:var(--white);border-radius:var(--radius);padding:28px;width:580px;max-width:94vw;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)">
+      <h2 style="margin:0 0 6px;font-size:17px;font-weight:600">Bulk Import Devices</h2>
+      <p class="hint" style="margin-bottom:16px">Paste serial numbers below (one per line). Same model, country, and date will be applied to all.</p>
+      <div id="bulkMsg"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <div><label>Model</label><select id="bi_model"></select></div>
+        <div><label>Country</label><select id="bi_country"></select></div>
+        <div><label>Date added</label><input id="bi_date" type="date"></div>
+        <div><label>Notes (optional)</label><input id="bi_notes"></div>
+      </div>
+      <div><label>Serial numbers <span style="font-weight:400;color:var(--graphite-soft)">— one per line</span></label>
+        <textarea id="bi_serials" rows="10" style="resize:vertical;font-family:monospace;font-size:13px" placeholder="M12345678&#10;M12345679&#10;M12345680"></textarea>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn" onclick="bulkImport()">Import devices</button>
+        <button class="btn ghost" onclick="closeBulkImport()">Cancel</button>
+      </div>
+      <div id="bulkProgress" class="hidden" style="margin-top:14px;padding:12px;background:var(--medel-red-light);border-radius:var(--radius-sm);font-size:13px;max-height:200px;overflow-y:auto"></div>
+    </div>
   </div>
   <div class="card">
     <h2>Pool inventory</h2>
@@ -327,12 +352,12 @@ async function boot(){
 function fillSelects(){
   const cOpts = countries.map(x=>`<option value="${x.code}">${esc(x.name)}</option>`).join("");
   const mOpts = models.map(x=>`<option value="${x.code}">${esc(x.name)}</option>`).join("");
-  ["d_country","s_country"].forEach(id=>{ $(id).innerHTML=cOpts; if(me.country_code) $(id).value=me.country_code;
+  ["d_country","s_country","bi_country"].forEach(id=>{ $(id).innerHTML=cOpts; if(me.country_code) $(id).value=me.country_code;
     if(me.role!=="regional") $(id).disabled = true; });
   $("m_dest").innerHTML = `<option value="">—</option>`+cOpts;
   $("f_country").innerHTML = `<option value="">All countries</option>`+cOpts;
-  ["d_model","s_model"].forEach(id=>$(id).innerHTML=mOpts);
-  ["d_date","m_date","s_date"].forEach(id=>$(id).value=today());
+  ["d_model","s_model","bi_model"].forEach(id=>$(id).innerHTML=mOpts);
+  ["d_date","m_date","s_date","bi_date"].forEach(id=>$(id).value=today());
 }
 
 // ---------- tabs ----------
@@ -483,6 +508,46 @@ async function addDevice(){
   $("d_serial").value=""; $("d_notes").value="";
   flash("devMsg","Device added to the pool.",true);
   await refreshAll();
+}
+
+// ---------- bulk import ----------
+function openBulkImport(){
+  $("bulkMsg").innerHTML = "";
+  $("bulkProgress").innerHTML = "";
+  $("bulkProgress").classList.add("hidden");
+  $("bi_serials").value = "";
+  $("bi_notes").value = "";
+  $("bi_date").value = today();
+  if(me.country_code) $("bi_country").value = me.country_code;
+  $("bulkModal").classList.remove("hidden");
+  $("bulkModal").style.display = "flex";
+  $("bi_serials").focus();
+}
+function closeBulkImport(){
+  $("bulkModal").classList.add("hidden");
+  $("bulkModal").style.display = "none";
+}
+async function bulkImport(){
+  const serials = $("bi_serials").value.trim().split("\n").map(s=>s.trim()).filter(Boolean);
+  if(!serials.length) return flash("bulkMsg","Paste at least one serial number.",false);
+  const model = $("bi_model").value, country = $("bi_country").value, date = $("bi_date").value, notes = $("bi_notes").value.trim()||null;
+  const prog = $("bulkProgress"); prog.classList.remove("hidden"); prog.innerHTML = "";
+  let ok=0, err=0;
+  for(const s of serials){
+    const {error} = await sb.from("pool_devices").insert({
+      serial_number:s, model_code:model, country_code:country, added_on:date, notes, status:"available"});
+    if(error){ prog.innerHTML += `<div style="color:var(--red)">✗ ${esc(s)}: ${esc(error.message)}</div>`; err++; }
+    else {
+      const {data:dev} = await sb.from("pool_devices").select("id").eq("serial_number",s).eq("model_code",model).single();
+      if(dev) await sb.from("movements").insert({device_id:dev.id, country_code:country, event_type:"added_to_pool", event_date:date});
+      prog.innerHTML += `<div style="color:var(--graphite)">✓ ${esc(s)}</div>`; ok++;
+    }
+    prog.scrollTop = prog.scrollHeight;
+    await new Promise(r=>setTimeout(r,80)); // small throttle
+  }
+  prog.innerHTML += `<div style="margin-top:8px;font-weight:600;border-top:1px solid var(--line);padding-top:8px">${ok} added, ${err} failed.</div>`;
+  await refreshAll();
+  if(!err) setTimeout(closeBulkImport, 2000);
 }
 
 async function addMovement(){
