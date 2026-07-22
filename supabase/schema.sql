@@ -75,16 +75,6 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function handle_new_user();
 
--- Helper functions used by RLS policies
-create or replace function my_country() returns text
-language sql stable security definer set search_path = public as $$
-  select country_code from profiles where id = auth.uid();
-$$;
-
-create or replace function is_regional() returns boolean
-language sql stable security definer set search_path = public as $$
-  select coalesce((select role = 'regional' from profiles where id = auth.uid()), false);
-$$;
 
 -- ---------- Core: individual pool devices ----------
 -- Each row = one physical loaner unit sitting in (or belonging to) a country pool.
@@ -261,53 +251,6 @@ select
 from shortage_events
 group by 1,2,3,4,5;
 
--- ---------- Row Level Security ----------
-
-alter table profiles        enable row level security;
-alter table pool_devices    enable row level security;
-alter table movements       enable row level security;
-alter table shortage_events enable row level security;
-alter table countries       enable row level security;
-alter table device_models   enable row level security;
-
--- Reference data: readable by any signed-in user
-drop policy if exists ref_read_countries on countries;
-create policy ref_read_countries on countries
-  for select to authenticated using (true);
-
-drop policy if exists ref_read_models on device_models;
-create policy ref_read_models on device_models
-  for select to authenticated using (true);
-
--- Profiles: you see yourself; regional sees all
-drop policy if exists profiles_select on profiles;
-create policy profiles_select on profiles
-  for select to authenticated
-  using (id = auth.uid() or is_regional());
-
-drop policy if exists profiles_update_self on profiles;
-create policy profiles_update_self on profiles
-  for update to authenticated
-  using (id = auth.uid()) with check (id = auth.uid());
-
--- Devices / movements / shortages: own country, or everything if regional
-drop policy if exists devices_rw on pool_devices;
-create policy devices_rw on pool_devices
-  for all to authenticated
-  using (is_regional() or country_code = my_country())
-  with check (is_regional() or country_code = my_country());
-
-drop policy if exists movements_rw on movements;
-create policy movements_rw on movements
-  for all to authenticated
-  using (is_regional() or country_code = my_country())
-  with check (is_regional() or country_code = my_country());
-
-drop policy if exists shortages_rw on shortage_events;
-create policy shortages_rw on shortage_events
-  for all to authenticated
-  using (is_regional() or country_code = my_country())
-  with check (is_regional() or country_code = my_country());
 
 -- ============================================================
 -- AFTER RUNNING: create your 9 users in Supabase Auth, then:
