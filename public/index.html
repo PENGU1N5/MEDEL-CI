@@ -183,6 +183,37 @@ button.btn.danger{background:var(--red)}
     <div style="margin-top:13px"><label>Note</label><input id="m_note"></div>
     <div style="margin-top:14px"><button class="btn" onclick="addMovement()">Save movement</button></div>
   </div>
+  <div class="card" style="border-left:4px solid var(--amber)">
+    <h2>Bulk send to Austria</h2>
+    <p class="hint">Select available devices to send for service in one batch.</p>
+    <div id="bulkSendMsg"></div>
+    <div class="grid" style="margin-bottom:12px">
+      <div><label>Date sent</label><input id="bs_date" type="date"></div>
+      <div><label>RMA / service ref (shared)</label><input id="bs_rma" placeholder="e.g. RMA-2026-001"></div>
+    </div>
+    <div class="scroll" style="max-height:300px;overflow-y:auto;border:1px solid var(--line);border-radius:var(--radius);padding:8px">
+      <div id="bulkSendList"></div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:10px">
+      <button class="btn" onclick="bulkSendToAustria()">Send selected to Austria</button>
+      <button class="btn ghost" onclick="document.querySelectorAll('#bulkSendList input:checked').forEach(c=>c.checked=false)">Clear selection</button>
+    </div>
+  </div>
+  <div class="card" style="border-left:4px solid var(--medel-red)">
+    <h2>Bulk receive from Austria</h2>
+    <p class="hint">Select devices that came back from service.</p>
+    <div id="bulkRecvMsg"></div>
+    <div class="grid" style="margin-bottom:12px">
+      <div><label>Date returned</label><input id="br_date" type="date"></div>
+    </div>
+    <div class="scroll" style="max-height:300px;overflow-y:auto;border:1px solid var(--line);border-radius:var(--radius);padding:8px">
+      <div id="bulkRecvList"></div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:10px">
+      <button class="btn" onclick="bulkReceiveFromAustria()">Receive selected from Austria</button>
+      <button class="btn ghost" onclick="document.querySelectorAll('#bulkRecvList input:checked').forEach(c=>c.checked=false)">Clear selection</button>
+    </div>
+  </div>
   <div class="card">
     <h2>Service turnaround (sent → returned)</h2>
     <div class="scroll"><table id="tblTurnaround"></table></div>
@@ -305,6 +336,7 @@ async function loadDevices(){
   $("m_device").innerHTML = devices.filter(d=>d.status!=="retired")
     .map(d=>`<option value="${d.id}">${esc(d.serial_number)} · ${esc(modelName(d.model_code))} · ${d.country_code} (${d.status})</option>`).join("");
   renderDevices();
+  renderBulkLists();
   // KPIs
   const act = devices.filter(d=>d.status!=="retired");
   const cnt = s => act.filter(d=>d.status===s).length;
@@ -499,6 +531,65 @@ async function deleteMovement(id){
   const {error} = await sb.from("movements").delete().eq("id", id);
   if(error) return flash("mvListMsg",error.message,false);
   flash("mvListMsg","Movement deleted.",true);
+  await refreshAll();
+}
+
+function renderBulkLists(){
+  const avail = devices.filter(d=>d.status==="available"||d.status==="in_transit");
+  const atSvc = devices.filter(d=>d.status==="at_service");
+  $("bulkSendList").innerHTML = avail.length
+    ? avail.map(d=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer">
+        <input type="checkbox" class="bs-check" value="${d.id}">
+        <span><b>${esc(d.serial_number)}</b> · ${esc(modelName(d.model_code))} · ${d.country_code}</span>
+      </label>`).join("")
+    : '<span style="color:var(--graphite-soft);font-size:13px">No available devices to send.</span>';
+  $("bulkRecvList").innerHTML = atSvc.length
+    ? atSvc.map(d=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer">
+        <input type="checkbox" class="br-check" value="${d.id}">
+        <span><b>${esc(d.serial_number)}</b> · ${esc(modelName(d.model_code))} · ${d.country_code}</span>
+      </label>`).join("")
+    : '<span style="color:var(--graphite-soft);font-size:13px">No devices currently at Austria service.</span>';
+}
+
+async function bulkSendToAustria(){
+  const ids = [...document.querySelectorAll(".bs-check:checked")].map(c=>c.value);
+  if(!ids.length) return flash("bulkSendMsg","Select at least one device.",false);
+  const date = $("bs_date").value;
+  if(!date) return flash("bulkSendMsg","Select a date.",false);
+  const rma = $("bs_rma").value.trim() || null;
+  let count = 0, errors = [];
+  for(const id of ids){
+    const dev = devices.find(d=>d.id===id);
+    if(!dev) continue;
+    const {error} = await sb.from("movements").insert({
+      device_id:id, country_code:dev.country_code, event_type:"sent_to_austria",
+      event_date:date, rma_number:rma, note:`Bulk send (RMA: ${rma||"N/A"})`});
+    if(error) errors.push(`${dev.serial_number}: ${error.message}`);
+    else count++;
+  }
+  if(errors.length) flash("bulkSendMsg",`${count} sent. Errors: ${errors.join("; ")}`,false);
+  else flash("bulkSendMsg",`${count} device(s) sent to Austria.`,true);
+  $("bs_rma").value="";
+  await refreshAll();
+}
+
+async function bulkReceiveFromAustria(){
+  const ids = [...document.querySelectorAll(".br-check:checked")].map(c=>c.value);
+  if(!ids.length) return flash("bulkRecvMsg","Select at least one device.",false);
+  const date = $("br_date").value;
+  if(!date) return flash("bulkRecvMsg","Select a date.",false);
+  let count = 0, errors = [];
+  for(const id of ids){
+    const dev = devices.find(d=>d.id===id);
+    if(!dev) continue;
+    const {error} = await sb.from("movements").insert({
+      device_id:id, country_code:dev.country_code, event_type:"returned_from_austria",
+      event_date:date, note:"Bulk return from Austria"});
+    if(error) errors.push(`${dev.serial_number}: ${error.message}`);
+    else count++;
+  }
+  if(errors.length) flash("bulkRecvMsg",`${count} received. Errors: ${errors.join("; ")}`,false);
+  else flash("bulkRecvMsg",`${count} device(s) received from Austria.`,true);
   await refreshAll();
 }
 
