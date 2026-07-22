@@ -384,8 +384,11 @@ async function loadShortages(){
       <td>${r.reason.replace(/_/g," ")}</td><td class="num">${r.wait_days??"—"}</td>
       <td>${solved ? r.resolved_on : '<span class="pill p-at_service">open</span>'}</td>
       <td>${esc(r.resolution||r.note||"")}</td>
-      <td class="row-actions">${solved ? '<span style="color:var(--medel-red);font-weight:600">&#10003;</span>' :
-        `<button onclick="editShortage('${r.id}')">Solve</button>`}</td></tr>`;
+      <td class="row-actions">
+        ${solved ? '<span style="color:var(--medel-red);font-weight:600">&#10003;</span>' :
+          `<button onclick="editShortage('${r.id}')">Solve</button>`}
+        <button onclick="deleteShortage('${r.id}')" style="color:var(--red);border-color:var(--red)">Delete</button>
+      </td></tr>`;
     }).join("")
      :`<tr><td colspan="10" style="color:var(--graphite-soft)">No shortages logged.</td></tr>`)+`</tbody>`;
 
@@ -477,6 +480,14 @@ async function saveShortage(id){
   }).eq("id", id);
   if(error) return flash("shMsg",error.message,false);
   flash("shMsg","Shortage marked as solved!",true);
+  await loadShortages();
+}
+
+async function deleteShortage(id){
+  if(!confirm("Delete this shortage record permanently?")) return;
+  const {error} = await sb.from("shortage_events").delete().eq("id", id);
+  if(error) return flash("shMsg",error.message,false);
+  flash("shMsg","Shortage deleted.",true);
   await loadShortages();
 }
 
