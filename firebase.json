@@ -1,4 +1,5 @@
 {
+  "projects": { "default": "medel-a8c29" },
   "hosting": {
     "public": "public",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
