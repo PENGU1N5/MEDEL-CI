@@ -70,6 +70,7 @@ tr:hover td{background:#FDF5F5}
 .p-at_service{background:#FDF4E5;color:#9A6A15}
 .p-in_transit{background:#F0EDF8;color:#5D4A93}
 .p-retired{background:#EFEFEF;color:#7A7A7A}
+.p-transferred_in{background:#E8F5E9;color:#2E7D32}
 label{display:block;font-size:12px;font-weight:600;color:var(--graphite-soft);margin-bottom:5px;letter-spacing:.1px}
 input,select,textarea{width:100%;padding:9px 12px;border:1.5px solid var(--line);border-radius:var(--radius-sm);font-size:13.5px;font-family:inherit;background:var(--white);color:var(--graphite);transition:var(--transition)}
 input:hover,select:hover,textarea:hover{border-color:#D0D3D1}
@@ -139,6 +140,11 @@ button.btn.danger:hover{background:#B53A3A}
   <div class="card">
     <h2>Devices at Austria service (open)</h2>
     <div class="scroll"><table id="tblOpenService"></table></div>
+  </div>
+  <div class="card">
+    <h2>Incoming transfers <span style="font-weight:400;font-size:12px;color:var(--graphite-soft)">— devices sent to your country</span></h2>
+    <div id="incomingMsg"></div>
+    <div class="scroll"><table id="tblIncoming"></table></div>
   </div>
 </section>
 
@@ -216,6 +222,7 @@ button.btn.danger:hover{background:#B53A3A}
         <option value="sent_to_austria">Sent to Austria for service</option>
         <option value="returned_from_austria">Returned from Austria</option>
         <option value="transferred_out">Transferred to another country</option>
+        <option value="transferred_in">Received from another country</option>
         <option value="retired">Retired</option>
       </select></div>
       <div><label>Date</label><input id="m_date" type="date"></div>
@@ -316,7 +323,7 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-let me = null, countries = [], models = [], devices = [], charts = {};
+let me = null, countries = [], models = [], devices = [], movements = [], charts = {};
 
 const $ = id => document.getElementById(id);
 const esc = s => (s??"").toString().replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -371,6 +378,7 @@ document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
 // ---------- data refresh ----------
 async function refreshAll(){
   await Promise.all([loadDevices(), loadMatrix(), loadShortages(), loadTurnaround(), loadMovements()]);
+  renderDashboard();
 }
 
 async function loadDevices(){
@@ -380,15 +388,6 @@ async function loadDevices(){
     .map(d=>`<option value="${d.id}">${esc(d.serial_number)} · ${esc(modelName(d.model_code))} · ${d.country_code} (${d.status})</option>`).join("");
   renderDevices();
   renderBulkLists();
-  // KPIs
-  const act = devices.filter(d=>d.status!=="retired");
-  const cnt = s => act.filter(d=>d.status===s).length;
-  $("kpis").innerHTML = `
-    ${kpi(act.length,"Units in pool","")}
-    ${kpi(cnt("available"),"Available now","")}
-    ${kpi(cnt("issued"),"With patients","")}
-    ${kpi(cnt("at_service"),"At Austria service","warn")}
-    ${kpi(zeroLines(),"Country×model at zero","bad")}`;
 }
 const kpi=(n,l,cls)=>`<div class="kpi ${cls}"><div class="n">${n}</div><div class="l">${l}</div></div>`;
 const modelName = c => (models.find(m=>m.code===c)||{}).name || c;
@@ -401,6 +400,57 @@ function zeroLines(){
     if(owns && !has) z++;
   }));
   return z;
+}
+
+// ---------- dashboard ----------
+function renderDashboard(){
+  const act = devices.filter(d=>d.status!=="retired");
+  const cnt = s => act.filter(d=>d.status===s).length;
+  const inTransit = devices.filter(d=>d.status==="in_transit");
+  const toMe = inTransit.filter(d=>{
+    const out = movements.filter(m=>m.device_id===d.id&&m.event_type==="transferred_out")
+      .sort((a,b)=>b.event_date.localeCompare(a.event_date));
+    return out.length && out[0].counterpart_country===me.country_code;
+  });
+  $("kpis").innerHTML = `
+    ${kpi(act.length,"Units in pool","")}
+    ${kpi(cnt("available"),"Available now","")}
+    ${kpi(cnt("issued"),"With patients","")}
+    ${kpi(cnt("at_service"),"At Austria service","warn")}
+    ${kpi(toMe.length,"Incoming transfers","bad")}`;
+  renderIncoming(toMe);
+}
+
+function renderIncoming(list){
+  $("tblIncoming").innerHTML = `<thead><tr><th>Serial</th><th>Model</th><th>From</th><th>Sent</th><th>Actions</th></tr></thead><tbody>`+
+    (list.length?list.map(d=>{
+      const out = movements.filter(m=>m.device_id===d.id&&m.event_type==="transferred_out")
+        .sort((a,b)=>b.event_date.localeCompare(a.event_date))[0];
+      return `<tr id="inc-${d.id}"><td><b>${esc(d.serial_number)}</b></td>
+        <td>${esc(modelName(d.model_code))}</td>
+        <td>${out ? out.country_code : d.country_code}</td>
+        <td>${out ? out.event_date : "—"}</td>
+        <td class="row-actions">
+          <button onclick="receiveTransfer('${d.id}')" style="background:var(--medel-red);color:#fff;border:none;padding:5px 16px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600">✓ Receive</button>
+        </td></tr>`;
+    }).join("")
+    :`<tr><td colspan="5" style="color:var(--graphite-soft)">No devices in transit to your country.</td></tr>`)+`</tbody>`;
+}
+
+async function receiveTransfer(id){
+  if(!me.country_code) return flash("incomingMsg","Only country users can receive transfers.",false);
+  if(!confirm("Confirm receipt of this device into your country pool?")) return;
+  const dev = devices.find(d=>d.id===id);
+  if(!dev) return;
+  const {error:upd} = await sb.from("pool_devices").update({status:"available",country_code:me.country_code}).eq("id",id);
+  if(upd) return flash("incomingMsg",upd.message,false);
+  const {error:mv} = await sb.from("movements").insert({
+    device_id:id, country_code:me.country_code, event_type:"transferred_in",
+    event_date:today(), counterpart_country:dev.country_code,
+    note:"Received from "+dev.country_code});
+  if(mv) return flash("incomingMsg",mv.message,false);
+  flash("incomingMsg","Device received and added to your pool.",true);
+  await refreshAll();
 }
 
 function renderDevices(){
@@ -561,6 +611,10 @@ async function addMovement(){
     patient_ref:$("m_patient").value||null, rma_number:$("m_rma").value||null,
     counterpart_country:$("m_dest").value||null, note:$("m_note").value||null});
   if(error) return flash("mvMsg",error.message,false);
+  // sync device status
+  const sMap = {issued_to_patient:"issued",returned_by_patient:"available",sent_to_austria:"at_service",returned_from_austria:"available",transferred_out:"in_transit",transferred_in:"available",retired:"retired"};
+  if(sMap[type]) await sb.from("pool_devices").update({status:sMap[type]}).eq("id",id);
+  if(type==="transferred_in" && $("m_dest").value) await sb.from("pool_devices").update({country_code:$("m_dest").value}).eq("id",id);
   ["m_patient","m_rma","m_note"].forEach(x=>$(x).value=""); $("m_dest").value="";
   flash("mvMsg","Movement recorded.",true);
   await refreshAll();
@@ -568,13 +622,14 @@ async function addMovement(){
 
 async function loadMovements(){
   const {data} = await sb.from("movements").select("*").order("event_date",{ascending:false}).limit(50);
-  const rows = data||[];
+  movements = data||[];
+  const rows = movements;
   $("tblMovements").innerHTML = `<thead><tr><th>Date</th><th>Device</th><th>Event</th><th>Patient</th><th>RMA</th><th>Note</th><th>Actions</th></tr></thead><tbody>`+
     (rows.length?rows.map(r=>{
       const dev = devices.find(d=>d.id===r.device_id);
       return `<tr id="mv-${r.id}"><td>${r.event_date}</td>
         <td>${dev ? esc(dev.serial_number) : '—'}</td>
-        <td><span class="pill ${r.event_type==='sent_to_austria'||r.event_type==='returned_from_austria'?'p-at_service':r.event_type==='issued_to_patient'?'p-issued':'p-available'}">${r.event_type.replace(/_/g," ")}</span></td>
+        <td><span class="pill ${r.event_type==='sent_to_austria'||r.event_type==='returned_from_austria'?'p-at_service':r.event_type==='issued_to_patient'?'p-issued':r.event_type==='transferred_out'?'p-in_transit':r.event_type==='transferred_in'?'p-transferred_in':'p-available'}">${r.event_type.replace(/_/g," ")}</span></td>
         <td>${esc(r.patient_ref||"")}</td><td>${esc(r.rma_number||"")}</td>
         <td>${esc(r.note||"")}</td>
         <td class="row-actions">
