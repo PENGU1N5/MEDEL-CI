@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>MED-EL Service Pool — Middle East</title>
+<title>MedelServicePool</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
@@ -556,16 +556,16 @@ function renderBulkLists(){
   const avail = devices.filter(d=>d.status==="available"||d.status==="in_transit");
   const atSvc = devices.filter(d=>d.status==="at_service");
   $("bulkSendList").innerHTML = avail.length
-    ? avail.map(d=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer">
-        <input type="checkbox" class="bs-check" value="${d.id}">
-        <span><b>${esc(d.serial_number)}</b> · ${esc(modelName(d.model_code))} · ${d.country_code}</span>
-      </label>`).join("")
+    ? avail.map(d=>`<div style="display:flex;align-items:center;gap:10px;padding:6px 4px;border-bottom:1px solid var(--line)">
+        <input type="checkbox" class="bs-check" value="${d.id}" style="width:16px;height:16px;flex-shrink:0;margin:0">
+        <span><b>${esc(d.serial_number)}</b> <span style="color:var(--graphite-soft)">·</span> ${esc(modelName(d.model_code))} <span style="color:var(--graphite-soft);font-size:12px">(${d.country_code})</span></span>
+      </div>`).join("")
     : '<span style="color:var(--graphite-soft);font-size:13px">No available devices to send.</span>';
   $("bulkRecvList").innerHTML = atSvc.length
-    ? atSvc.map(d=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer">
-        <input type="checkbox" class="br-check" value="${d.id}">
-        <span><b>${esc(d.serial_number)}</b> · ${esc(modelName(d.model_code))} · ${d.country_code}</span>
-      </label>`).join("")
+    ? atSvc.map(d=>`<div style="display:flex;align-items:center;gap:10px;padding:6px 4px;border-bottom:1px solid var(--line)">
+        <input type="checkbox" class="br-check" value="${d.id}" style="width:16px;height:16px;flex-shrink:0;margin:0">
+        <span><b>${esc(d.serial_number)}</b> <span style="color:var(--graphite-soft)">·</span> ${esc(modelName(d.model_code))} <span style="color:var(--graphite-soft);font-size:12px">(${d.country_code})</span></span>
+      </div>`).join("")
     : '<span style="color:var(--graphite-soft);font-size:13px">No devices currently at Austria service.</span>';
 }
 
