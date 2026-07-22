@@ -375,13 +375,19 @@ async function loadShortages(){
   const {data} = await sb.from("shortage_events").select("*").order("occurred_on",{ascending:false});
   const rows = data||[];
   $("tblShortage").innerHTML = `<thead><tr><th>Date</th><th>Country</th><th>Model</th><th class="num">Units</th>
-    <th>Urgency</th><th>Reason</th><th class="num">Wait</th><th>Resolved</th><th>Note</th></tr></thead><tbody>`+
-    (rows.length?rows.map(r=>`<tr><td>${r.occurred_on}</td><td>${r.country_code}</td><td>${esc(modelName(r.model_code))}</td>
+    <th>Urgency</th><th>Reason</th><th class="num">Wait</th><th>Resolved</th><th>Note</th><th>Actions</th></tr></thead><tbody>`+
+    (rows.length?rows.map(r=>{
+      const solved = !!r.resolved_on;
+      return `<tr id="sh-${r.id}"><td>${r.occurred_on}</td><td>${r.country_code}</td><td>${esc(modelName(r.model_code))}</td>
       <td class="num">${r.units_needed}</td>
       <td><span class="pill ${r.urgency==='critical'?'p-retired':'p-at_service'}" style="${r.urgency==='critical'?'background:#FDECEC;color:#D64545':''}">${r.urgency}</span></td>
       <td>${r.reason.replace(/_/g," ")}</td><td class="num">${r.wait_days??"—"}</td>
-      <td>${r.resolved_on||'<span class="pill p-at_service">open</span>'}</td><td>${esc(r.note||r.resolution)}</td></tr>`).join("")
-     :`<tr><td colspan="9" style="color:var(--graphite-soft)">No shortages logged.</td></tr>`)+`</tbody>`;
+      <td>${solved ? r.resolved_on : '<span class="pill p-at_service">open</span>'}</td>
+      <td>${esc(r.resolution||r.note||"")}</td>
+      <td class="row-actions">${solved ? '<span style="color:var(--medel-red);font-weight:600">&#10003;</span>' :
+        `<button onclick="editShortage('${r.id}')">Solve</button>`}</td></tr>`;
+    }).join("")
+     :`<tr><td colspan="10" style="color:var(--graphite-soft)">No shortages logged.</td></tr>`)+`</tbody>`;
 
   // seasonality chart
   const byMonth = Array(12).fill(0);
@@ -442,6 +448,35 @@ async function addShortage(){
   if(error) return flash("shMsg",error.message,false);
   ["s_patient","s_wait","s_resolved","s_note"].forEach(x=>$(x).value="");
   flash("shMsg","Shortage logged.",true);
+  await loadShortages();
+}
+
+function editShortage(id){
+  const row = $(`sh-${id}`);
+  if(!row) return;
+  row.innerHTML = `<td colspan="10">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 0">
+      <label style="white-space:nowrap;margin:0">Resolved on
+        <input id="e_${id}_date" type="date" value="${today()}" style="width:150px;margin-left:6px">
+      </label>
+      <label style="white-space:nowrap;margin:0">How solved
+        <input id="e_${id}_note" placeholder="e.g. borrowed from UAE" style="width:260px;margin-left:6px">
+      </label>
+      <button class="btn" style="padding:6px 14px;font-size:12px" onclick="saveShortage('${id}')">Save</button>
+      <button class="btn ghost" style="padding:6px 14px;font-size:12px" onclick="loadShortages()">Cancel</button>
+    </div>
+  </td>`;
+}
+
+async function saveShortage(id){
+  const date = $(`e_${id}_date`).value;
+  const note = $(`e_${id}_note`).value.trim();
+  if(!date) return;
+  const {error} = await sb.from("shortage_events").update({
+    resolved_on: date, resolution: note||null
+  }).eq("id", id);
+  if(error) return flash("shMsg",error.message,false);
+  flash("shMsg","Shortage marked as solved!",true);
   await loadShortages();
 }
 
