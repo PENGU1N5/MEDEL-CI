@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: medel-ci-backend
+    runtime: node
+    repo: https://github.com/PENGU1N5/MEDEL-CI
+    branch: master
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: SUPABASE_URL
+        value: https://vpahqreilrzqflpsosrd.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: PORT
+        value: 3001
