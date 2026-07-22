@@ -381,10 +381,14 @@ async function refreshAll(){
   renderDashboard();
 }
 
+function isRegional(){ return me.role==="regional"; }
+function myCC(){ return me.country_code; }
+function canManage(d){ return isRegional() || d.country_code===myCC(); }
+
 async function loadDevices(){
   let q = sb.from("pool_devices").select("*").order("country_code").order("model_code").order("serial_number");
   const {data} = await q; devices = data||[];
-  $("m_device").innerHTML = devices.filter(d=>d.status!=="retired")
+  $("m_device").innerHTML = devices.filter(d=>d.status!=="retired"&&canManage(d))
     .map(d=>`<option value="${d.id}">${esc(d.serial_number)} · ${esc(modelName(d.model_code))} · ${d.country_code} (${d.status})</option>`).join("");
   renderDevices();
   renderBulkLists();
@@ -406,19 +410,17 @@ function zeroLines(){
 function renderDashboard(){
   const act = devices.filter(d=>d.status!=="retired");
   const cnt = s => act.filter(d=>d.status===s).length;
-  const inTransit = devices.filter(d=>d.status==="in_transit");
-  const toMe = inTransit.filter(d=>{
-    const out = movements.filter(m=>m.device_id===d.id&&m.event_type==="transferred_out")
-      .sort((a,b)=>b.event_date.localeCompare(a.event_date));
-    return out.length && out[0].counterpart_country===me.country_code;
-  });
+  // find incoming transfers — devices in_transit heading to my country
+  const outMvs = movements.filter(m=>m.event_type==="transferred_out"&&m.counterpart_country===myCC());
+  const toMeIds = [...new Set(outMvs.map(m=>m.device_id))];
+  const allIncoming = devices.filter(d=>toMeIds.includes(d.id)||(d.status==="in_transit"&&outMvs.some(m=>m.device_id===d.id)));
   $("kpis").innerHTML = `
     ${kpi(act.length,"Units in pool","")}
     ${kpi(cnt("available"),"Available now","")}
     ${kpi(cnt("issued"),"With patients","")}
     ${kpi(cnt("at_service"),"At Austria service","warn")}
-    ${kpi(toMe.length,"Incoming transfers","bad")}`;
-  renderIncoming(toMe);
+    ${kpi(allIncoming.length,"Incoming transfers","bad")}`;
+  renderIncoming(allIncoming);
 }
 
 function renderIncoming(list){
@@ -460,9 +462,9 @@ function renderDevices(){
     (rows.length?rows.map(d=>`<tr id="dev-${d.id}"><td><b>${esc(d.serial_number)}</b></td><td>${esc(modelName(d.model_code))}</td>
       <td>${d.country_code}</td><td><span class="pill p-${d.status}">${d.status.replace(/_/g," ")}</span></td>
       <td>${d.added_on||""}</td><td id="dev-note-${d.id}">${esc(d.notes)}</td>
-      <td class="row-actions">
+      <td class="row-actions">${canManage(d)?`
         <button onclick="editDevice('${d.id}')">Edit</button>
-        <button onclick="deleteDevice('${d.id}')" style="color:var(--red);border-color:var(--red)">Delete</button>
+        <button onclick="deleteDevice('${d.id}')" style="color:var(--red);border-color:var(--red)">Delete</button>`:'<span style="color:var(--graphite-soft);font-size:11px">read only</span>'}
       </td></tr>`).join("")
       :`<tr><td colspan="7" style="color:var(--graphite-soft)">No devices yet.</td></tr>`)+`</tbody>`;
 }
@@ -518,10 +520,11 @@ async function loadShortages(){
       <td>${r.reason.replace(/_/g," ")}</td><td class="num">${r.wait_days??"—"}</td>
       <td>${solved ? r.resolved_on : '<span class="pill p-at_service">open</span>'}</td>
       <td>${esc(r.resolution||r.note||"")}</td>
-      <td class="row-actions">
+      <td class="row-actions">${canManage(r)?`
         ${solved ? '<span style="color:var(--medel-red);font-weight:600">&#10003;</span>' :
           `<button onclick="editShortage('${r.id}')">Solve</button>`}
-        <button onclick="deleteShortage('${r.id}')" style="color:var(--red);border-color:var(--red)">Delete</button>
+        <button onclick="deleteShortage('${r.id}')" style="color:var(--red);border-color:var(--red)">Delete</button>`:
+        solved?'<span style="color:var(--graphite-soft);font-size:11px">solved</span>':'<span style="color:var(--graphite-soft);font-size:11px">read only</span>'}
       </td></tr>`;
     }).join("")
      :`<tr><td colspan="10" style="color:var(--graphite-soft)">No shortages logged.</td></tr>`)+`</tbody>`;
@@ -604,6 +607,7 @@ async function addMovement(){
   const id = $("m_device").value;
   if(!id) return flash("mvMsg","Select a device.",false);
   const dev = devices.find(d=>d.id===id);
+  if(!canManage(dev)) return flash("mvMsg","You can only log movements for your own country's devices.",false);
   const type = $("m_type").value;
   if(type==="transferred_out" && !$("m_dest").value) return flash("mvMsg","Choose a destination country.",false);
   const {error} = await sb.from("movements").insert({
@@ -632,9 +636,9 @@ async function loadMovements(){
         <td><span class="pill ${r.event_type==='sent_to_austria'||r.event_type==='returned_from_austria'?'p-at_service':r.event_type==='issued_to_patient'?'p-issued':r.event_type==='transferred_out'?'p-in_transit':r.event_type==='transferred_in'?'p-transferred_in':'p-available'}">${r.event_type.replace(/_/g," ")}</span></td>
         <td>${esc(r.patient_ref||"")}</td><td>${esc(r.rma_number||"")}</td>
         <td>${esc(r.note||"")}</td>
-        <td class="row-actions">
+        <td class="row-actions">${isRegional()||r.country_code===myCC()?`
           <button onclick="editMovement('${r.id}')">Edit</button>
-          <button onclick="deleteMovement('${r.id}')" style="color:var(--red);border-color:var(--red)">Delete</button>
+          <button onclick="deleteMovement('${r.id}')" style="color:var(--red);border-color:var(--red)">Delete</button>`:'<span style="color:var(--graphite-soft);font-size:11px">read only</span>'}
         </td></tr>`;
     }).join("")
     :`<tr><td colspan="7" style="color:var(--graphite-soft)">No movements yet.</td></tr>`)+`</tbody>`;
@@ -657,6 +661,8 @@ function editMovement(id){
 }
 
 async function saveMovement(id){
+  const mv = movements.find(m=>m.id===id);
+  if(mv && !isRegional() && mv.country_code!==myCC()) return flash("mvListMsg","You can only edit your own country's movements.",false);
   const note = $(`em_${id}_note`).value.trim();
   const {error} = await sb.from("movements").update({ note: note||null }).eq("id", id);
   if(error) return flash("mvListMsg",error.message,false);
@@ -665,6 +671,8 @@ async function saveMovement(id){
 }
 
 async function deleteMovement(id){
+  const mv = movements.find(m=>m.id===id);
+  if(mv && !isRegional() && mv.country_code!==myCC()) return flash("mvListMsg","You can only delete your own country's movements.",false);
   if(!confirm("Delete this movement permanently?")) return;
   const {error} = await sb.from("movements").delete().eq("id", id);
   if(error) return flash("mvListMsg",error.message,false);
@@ -673,8 +681,8 @@ async function deleteMovement(id){
 }
 
 function renderBulkLists(){
-  const avail = devices.filter(d=>d.status==="available"||d.status==="in_transit");
-  const atSvc = devices.filter(d=>d.status==="at_service");
+  const avail = devices.filter(d=>(d.status==="available"||d.status==="in_transit")&&canManage(d));
+  const atSvc = devices.filter(d=>d.status==="at_service"&&canManage(d));
   $("bulkSendList").innerHTML = avail.length
     ? avail.map(d=>`<div style="display:flex;align-items:center;gap:10px;padding:6px 4px;border-bottom:1px solid var(--line)">
         <input type="checkbox" class="bs-check" value="${d.id}" style="width:16px;height:16px;flex-shrink:0;margin:0">
@@ -699,6 +707,7 @@ async function bulkSendToAustria(){
   for(const id of ids){
     const dev = devices.find(d=>d.id===id);
     if(!dev) continue;
+    if(!canManage(dev)){ errors.push(`${dev.serial_number}: not your device`); continue; }
     const {error} = await sb.from("movements").insert({
       device_id:id, country_code:dev.country_code, event_type:"sent_to_austria",
       event_date:date, rma_number:rma, note:`Bulk send (RMA: ${rma||"N/A"})`});
@@ -720,6 +729,7 @@ async function bulkReceiveFromAustria(){
   for(const id of ids){
     const dev = devices.find(d=>d.id===id);
     if(!dev) continue;
+    if(!canManage(dev)){ errors.push(`${dev.serial_number}: not your device`); continue; }
     const {error} = await sb.from("movements").insert({
       device_id:id, country_code:dev.country_code, event_type:"returned_from_austria",
       event_date:date, note:"Bulk return from Austria"});
@@ -744,6 +754,8 @@ function editDevice(id){
 }
 
 async function saveDevice(id){
+  const dev = devices.find(d=>d.id===id);
+  if(!canManage(dev)) return flash("devMsg","You can only edit your own country's devices.",false);
   const note = $(`ed_${id}_note`).value.trim();
   const {error} = await sb.from("pool_devices").update({ notes: note||null }).eq("id", id);
   if(error) return flash("devMsg",error.message,false);
@@ -752,6 +764,8 @@ async function saveDevice(id){
 }
 
 async function deleteDevice(id){
+  const dev = devices.find(d=>d.id===id);
+  if(!canManage(dev)) return flash("devMsg","You can only delete your own country's devices.",false);
   if(!confirm("Delete this device permanently?")) return;
   const {error} = await sb.from("pool_devices").delete().eq("id", id);
   if(error) return flash("devMsg",error.message,false);
