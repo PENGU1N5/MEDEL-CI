@@ -132,7 +132,13 @@ button.btn.danger:hover{background:#B53A3A}
 <main>
 
 <!-- DASHBOARD -->
-<section id="tab-dash">
+<section id="tab-dash" class="hidden">
+  <div class="card" id="dashFilter" style="margin-bottom:16px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <label style="margin:0;white-space:nowrap">Filter by country</label>
+      <select id="dash_country" onchange="renderDashboard()" style="width:200px"></select>
+    </div>
+  </div>
   <div class="kpis" id="kpis"></div>
   <div class="card">
     <h2>Shortage events by month</h2>
@@ -356,6 +362,14 @@ async function boot(){
   countries = c||[]; models = m||[];
   fillSelects();
   await refreshAll();
+  // hide Dashboard for non-admin, default to Stock Matrix
+  if(!isRegional()){
+    document.querySelector('[data-tab="dash"]').classList.add("hidden");
+    document.querySelector('[data-tab="stock"]').click();
+  } else {
+    document.querySelector('[data-tab="dash"]').classList.remove("hidden");
+    document.querySelector('[data-tab="dash"]').click();
+  }
 }
 
 function fillSelects(){
@@ -365,6 +379,7 @@ function fillSelects(){
     if(me.role!=="regional") $(id).disabled = true; });
   $("m_dest").innerHTML = `<option value="">—</option>`+cOpts;
   $("f_country").innerHTML = `<option value="">All countries</option>`+cOpts;
+  $("dash_country").innerHTML = `<option value="">All countries</option>`+cOpts;
   ["d_model","s_model","bi_model"].forEach(id=>$(id).innerHTML=mOpts);
   ["d_date","m_date","s_date","bi_date"].forEach(id=>$(id).value=today());
 }
@@ -410,10 +425,12 @@ function zeroLines(){
 
 // ---------- dashboard ----------
 function renderDashboard(){
-  const act = devices.filter(d=>d.status!=="retired");
+  const filterCC = $("dash_country").value || "";
+  const act = devices.filter(d=>d.status!=="retired" && (!filterCC || d.country_code===filterCC));
   const cnt = s => act.filter(d=>d.status===s).length;
-  // find incoming transfers — devices in_transit heading to my country
-  const outMvs = movements.filter(m=>m.event_type==="transferred_out"&&m.counterpart_country===myCC());
+  // find incoming transfers — devices in_transit heading to selected country
+  const targetCC = filterCC || myCC();
+  const outMvs = movements.filter(m=>m.event_type==="transferred_out"&&m.counterpart_country===targetCC);
   const toMeIds = [...new Set(outMvs.map(m=>m.device_id))];
   const allIncoming = devices.filter(d=>toMeIds.includes(d.id)||(d.status==="in_transit"&&outMvs.some(m=>m.device_id===d.id)));
   $("kpis").innerHTML = `
@@ -426,7 +443,9 @@ function renderDashboard(){
 }
 
 function renderIncoming(list){
-  $("tblIncoming").innerHTML = `<thead><tr><th>Serial</th><th>Model</th><th>From</th><th>Sent</th><th>Actions</th></tr></thead><tbody>`+
+  const filterCC = $("dash_country").value || "";
+  const canReceive = filterCC && (isRegional() || filterCC===myCC());
+  $("tblIncoming").innerHTML = `<thead><tr><th>Serial</th><th>Model</th><th>From</th><th>Sent</th>${canReceive?'<th>Actions</th>':''}</tr></thead><tbody>`+
     (list.length?list.map(d=>{
       const out = movements.filter(m=>m.device_id===d.id&&m.event_type==="transferred_out")
         .sort((a,b)=>b.event_date.localeCompare(a.event_date))[0];
@@ -434,11 +453,11 @@ function renderIncoming(list){
         <td>${esc(modelName(d.model_code))}</td>
         <td>${out ? out.country_code : d.country_code}</td>
         <td>${out ? out.event_date : "—"}</td>
-        <td class="row-actions">
+        ${canReceive?`<td class="row-actions">
           <button onclick="receiveTransfer('${d.id}')" style="background:var(--medel-red);color:#fff;border:none;padding:5px 16px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600">✓ Receive</button>
-        </td></tr>`;
+        </td>`:''}</tr>`;
     }).join("")
-    :`<tr><td colspan="5" style="color:var(--graphite-soft)">No devices in transit to your country.</td></tr>`)+`</tbody>`;
+    :`<tr><td colspan="${canReceive?5:4}" style="color:var(--graphite-soft)">No devices in transit to this country.</td></tr>`)+`</tbody>`;
 }
 
 async function receiveTransfer(id){
